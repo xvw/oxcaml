@@ -1118,7 +1118,7 @@ let transl_declaration env sdecl (id, uid) =
           Error.log_and_raise sdecl.ptype_loc (Non_abstract_reexport path)
       | Ptype_abstract ->
         Ttype_abstract, Type_abstract Definition,
-          Jkind.Builtin.value ~why:Default_type_jkind
+        Jkind.Builtin.value ~why:Default_type_jkind
       | Ptype_variant scstrs ->
         if or_null then check_or_null_variant_shape sdecl scstrs;
         let has_gadt =

@@ -2023,7 +2023,7 @@ type pattern_variable =
 
 type module_variable =
   {
-    mv_id : Ident.t;
+    mv_id: Ident.t;
     mv_name: string Location.loc;
     mv_loc: Location.t;
     mv_uid: Uid.t
@@ -2034,7 +2034,6 @@ type module_variable =
    allowed, the caller should take care to check that the introduced module
    bindings' types don't escape their scope; see the callsites in [type_let]
    and [type_cases] for examples.
-
    [Modules_ignored] indicates that the typing of patterns should not accumulate
    a list of module patterns to unpack. It's no different than using
    [Modules_allowed] and then ignoring the accumulated [module_variables] list,
@@ -4728,8 +4727,6 @@ let rec cases_tuple_arity cases =
     | Not_local_tuple -> Not_local_tuple
     | arity -> combine_pat_tuple_arity arity (cases_tuple_arity rest)
 
-type delayed_check = ((unit -> unit) * Warnings.state)
-
 
 (** In [check_counter_example_pat], we will check a counter-example candidate
     produced by Parmatch. This is a pattern that represents a set of values by
@@ -6358,10 +6355,10 @@ let check_univars env kind exp ty_expected vars =
                     [Errortrace.Bad_jkind (uvar,err)]
               end
             | _ ->
-                (* It would be semantically correct for this case to error. But
-                   these errors are caught below anyway, and erroring earlier
-                   results in small differences in error messages vs upstream. *)
-                ())
+              (* It would be semantically correct for this case to error. But
+                 these errors are caught below anyway, and erroring earlier
+                 results in small differences in error messages vs upstream. *)
+              ())
             univars vars;
           unify_exp_types exp.exp_loc env exp_ty ty';
           (exp_ty, vars)
@@ -8970,7 +8967,8 @@ and type_expect_
             Error.log_and_raise loc env (Virtual_class cl.txt)
         | Some ty ->
             rue {
-              exp_desc = Texp_new (cl_path, cl, cl_decl, pm.apply_position);
+              exp_desc =
+                Texp_new (cl_path, cl, cl_decl, pm.apply_position);
               exp_loc = loc; exp_extra = [];
               exp_type = instance ty;
               exp_attributes = sexp.pexp_attributes;
@@ -9361,8 +9359,8 @@ and type_expect_
           let ty_andops, sort_andops = new_rep_var ~why:Function_argument () in
           let ty_op =
             newty (Tarrow(arrow_desc, newmono ty_andops,
-                          newty (Tarrow(arrow_desc, newmono ty_func, ty_result, commu_ok)),
-                          commu_ok))
+              newty (Tarrow(arrow_desc, newmono ty_func, ty_result, commu_ok)),
+                     commu_ok))
           in
           begin try
             unify env op_type ty_op
@@ -9457,7 +9455,6 @@ and type_expect_
       | _ ->
           Error.log_and_raise loc env Invalid_extension_constructor_payload
       end
-
   | Pexp_extension ({ txt = ("probe" | "ocaml.probe"); _ }, payload) ->
     begin match Builtin_attributes.get_tracing_probe_payload payload with
     | Error () ->
@@ -9551,7 +9548,7 @@ and type_expect_
           Error.log_and_raise loc env Invalid_atomic_loc_payload
       end
   | Pexp_extension ext ->
-      raise (Error_forward (Builtin_attributes.error_of_extension ext))
+    raise (Error_forward (Builtin_attributes.error_of_extension ext))
 
   | Pexp_unreachable ->
       re { exp_desc = Texp_unreachable;
@@ -10302,7 +10299,7 @@ and type_function_
         with exn when !Clflags.typing_recovery
                    && Typing_recovery.is_recoverable exn ->
             Typing_recovery.erroneous_type_register ty_expected
-      end;
+     end;
       { function_ = exp_type, params, body;
         params_contain_gadt = contains_gadt; newtypes = newtype :: newtypes;
         fun_alloc_mode; ret_info; calling_convention_sorts;
@@ -13095,11 +13092,9 @@ and type_andops env sarg sands expected_sort expected_ty =
               (Nolabel, With_locality.legacy, With_locality.legacy)
             in
             let ty_rest_fun =
-              newty (Tarrow(arrow_desc, newmono ty_arg, ty_result, commu_ok))
-            in
+              newty (Tarrow(arrow_desc, newmono ty_arg, ty_result, commu_ok)) in
             let ty_op =
-              newty (Tarrow(arrow_desc, newmono ty_rest, ty_rest_fun, commu_ok))
-            in
+              newty (Tarrow(arrow_desc, newmono ty_rest, ty_rest_fun, commu_ok)) in
             begin try
               unify env op_type ty_op
             with Unify err ->
@@ -13213,9 +13208,9 @@ and type_n_ary_function
         let filter_ty_ret_exn ty arg_label ~force_tpoly =
           match filter_arrow env ty arg_label ~force_tpoly with
           | { ty_ret; _ } -> ty_ret
-          | exception (Filter_arrow_failed err) ->
+          | exception (Filter_arrow_failed error) ->
               let trace =
-                match err with
+                match error with
                 | Unification_error trace -> trace
                 | Not_a_function ->
                     let tarrow =
