@@ -380,13 +380,11 @@ let initial_env ~loc ~initially_opened_module ~open_implicit_args =
   let env = Lazy.force Env.initial in
   let open_module env m =
     let open Asttypes in
-    let lexbuf = Lexing.from_string m in
-    let txt =
-      Location.init lexbuf (Printf.sprintf "command line argument: -open %S" m);
-      Parse.simple_module_path lexbuf
-    in
+    (* [merlin] Merlin does not vendor [Parse], so the module path is parsed
+       with [Longident.parse] instead of [Parse.simple_module_path]. *)
+    let lid = { txt = Longident.parse m; loc } in
     try
-      let _, _, newenv = type_open_ Override env loc {txt;loc} in
+      let _, _, newenv = type_open_ Override env lid.loc lid in
       newenv
     with
     | (Typetexp.Error.In_context _
@@ -2386,14 +2384,6 @@ and transl_signature ?(keep_warnings = false) ?(interface_toplevel = false) env 
         in
         mksig (Tsig_type (rec_flag, decls)) env loc, sig_items, newenv
     | Psig_typesubst sdecls ->
-        List.iter (fun td ->
-          if td.ptype_kind <> Ptype_abstract || td.ptype_manifest = None ||
-             td.ptype_private = Private
-          then
-            (* This error should be a parsing error,
-               once we have nice error messages there. *)
-            raise (Error (td.ptype_loc, env, Invalid_type_subst_rhs))
-        ) sdecls;
         let (decls, newenv, _shapes) =
           Typedecl.transl_type_decl env Nonrecursive sdecls
         in
@@ -2666,27 +2656,30 @@ and transl_signature ?(keep_warnings = false) ?(interface_toplevel = false) env 
   let rec transl_sig env sig_items sig_type sig_type_include_functor = function
     | [] -> List.rev sig_items, List.rev sig_type, env
     | item :: srem -> begin
-        match transl_sig_item env sig_type item with
+        match transl_sig_item env sig_type_include_functor item with
         | exception _exn when !Clflags.typing_recovery ->
-            transl_sig env sig_items sig_type srem
+            transl_sig env sig_items sig_type sig_type_include_functor srem
         | new_item, new_types, env ->
             transl_sig env
               (new_item :: sig_items)
               (List.rev_append new_types sig_type)
+              (List.rev_append new_types sig_type_include_functor)
               srem
       end
   in
   Typing_recovery_state.with_saved_types
     ~save_part:(fun sg -> Cmt_format.Partial_signature sg)
     (fun () ->
-       Builtin_attributes.warning_scope []
-         (fun () ->
-            let (trem, rem, final_env) =
-              transl_sig (Env.in_signature true env) [] [] psg_items
-            in
-            let rem = Signature_names.simplify final_env names rem in
-            { sig_items = trem; sig_type = rem; sig_final_env = final_env;
-              sig_modalities; sig_sloc = psg_loc }))
+       let delayed () =
+         let (trem, rem, final_env) =
+           transl_sig (Env.in_signature true env) [] [] sig_acc psg_items
+         in
+         let rem = Signature_names.simplify final_env names rem in
+         { sig_items = trem; sig_type = rem; sig_final_env = final_env;
+           sig_modalities; sig_sloc = psg_loc }
+       in
+       if keep_warnings then delayed ()
+       else Builtin_attributes.warning_scope [] delayed)
 
 and transl_modtype_decl env pmtd =
   Builtin_attributes.warning_scope pmtd.pmtd_attributes
@@ -3490,7 +3483,7 @@ and type_module_aux ~alias ~hold_locks ~strengthen ~funct_body anchor env
           in the recovered typedtree *)
         match sarg.pmod_desc with
         | Pmod_hole ->
-            Msupport.raise_error exn;
+            Typing_recovery.log_or_raise exn;
             {
               mod_desc = Tmod_typed_hole;
               mod_type = Mty_for_hole;
@@ -3776,7 +3769,6 @@ and type_one_application ~ctx:(apply_loc,sfunct,md_f,args)
               match param with
               | None -> mty_res
               | Some param ->
-                  let parent_env = env in
                   let env =
                     Env.add_module ~arg:true param Mp_present arg.mod_type env
                   in
@@ -3858,15 +3850,34 @@ and type_one_application ~ctx:(apply_loc,sfunct,md_f,args)
     end
   | Mty_alias path ->
       Error.log_and_raise app_view.f_loc env (Cannot_scrape_alias path)
-  | Mty_ident _ | Mty_signature _ | Mty_strengthen _ ->
-      let args = List.map simplify_app_summary args in
-      let mty_f = md_f.mod_type in
-      let app_name = match sfunct.pmod_desc with
-        | Pmod_ident l -> Includemod.Named_leftmost_functor l.txt
-        | _ -> Includemod.Anonymous_functor
+  | Mty_ident _ | Mty_signature _ | Mty_strengthen _ | Mty_for_hole ->
+      (* [merlin] Applying something that recovery already turned into a hole
+         is not a new error, so it is not reported again. *)
+      let is_recovered_functor =
+        match Mtype.scrape_alias env funct.mod_type with
+        | Mty_for_hole -> true
+        | _ ->
+          List.exists
+            (fun a -> a.Parsetree.attr_name.txt = "ocaml.incorrect")
+            funct.mod_attributes
       in
-      Typing_recovery.log_and_raise
-        (Includemod.Apply_error {loc=apply_loc;env;app_name;mty_f;args})
+      if not (!Clflags.typing_recovery && is_recovered_functor) then begin
+        let args = List.map simplify_app_summary args in
+        let mty_f = md_f.mod_type in
+        let app_name = match sfunct.pmod_desc with
+          | Pmod_ident l -> Includemod.Named_leftmost_functor l.txt
+          | _ -> Includemod.Anonymous_functor
+        in
+        Typing_recovery.log_or_raise
+          (Includemod.Apply_error {loc=apply_loc;env;app_name;mty_f;args})
+      end;
+      { mod_desc = Tmod_typed_hole;
+        mod_type = Mty_for_hole;
+        mod_mode = With_regionality.(disallow_right min), None;
+        mod_env = env;
+        mod_attributes = app_view.attributes;
+        mod_loc = apply_loc },
+      funct_shape
 
 and type_open_decl ?used_slot ?toplevel ~funct_body names env sod =
   Builtin_attributes.warning_scope sod.popen_attributes
@@ -4408,7 +4419,9 @@ and type_structure ?(toplevel = None) ?(keep_warnings = false) ~funct_body
         let item = Sig_jkind(id, decl.jkind_jkind, Exported) in
         Tstr_jkind decl, [item], shape_map, env
   in
-  let toplevel_sig = Option.value toplevel ~default:[] in
+  (* [merlin] see the comment on [type_structure] above: the accumulated
+     signature is passed explicitly, not only in the toplevel case *)
+  let toplevel_sig = sig_acc in
   let rec type_struct env shape_map sstr str_acc sig_acc
       sig_acc_include_functor =
     match sstr with
@@ -4442,7 +4455,7 @@ and type_structure ?(toplevel = None) ?(keep_warnings = false) ~funct_body
   Typing_recovery_state.with_saved_types
     ~save_part:(fun (str,_,_,_,_, _) -> Cmt_format.Partial_structure str)
     (fun () ->
-       if Option.is_some toplevel then delayed ()
+       if Option.is_some toplevel || keep_warnings then delayed ()
        else Builtin_attributes.warning_scope [] delayed)
 
 (* The toplevel will print some types not present in the signature *)

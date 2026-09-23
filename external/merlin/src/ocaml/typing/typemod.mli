@@ -205,6 +205,16 @@ type error =
 exception Error_forward of Location.error
 exception Errors of Location.t * Typing_recovery.Error_set.t
 
+(* [merlin] The compiler defines this module in typemod.ml but does not export
+   it, unlike its Typecore/Typetexp/Env counterparts. Merlin needs to catch
+   these errors (see [Construct]), so it is exported here. *)
+module Error : sig
+  type exn += private In_context of Location.t * Env.t * error
+
+  val log_or_raise : Location.t -> Env.t -> error -> unit
+  val log_and_raise : Location.t -> Env.t -> error -> 'a
+end
+
 val report_error: Env.t -> loc:Location.t -> error -> Location.error
 
 (** Clear several bits of global state that may retain large amounts of memory

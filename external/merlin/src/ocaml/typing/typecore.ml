@@ -535,112 +535,6 @@ let error_of_filter_arrow_failure ~explanation ~first ty_fun
     end
   | Jkind_error (ty, err) -> Function_type_not_rep (ty, err)
 
-(* merlin: deep copy types in errors, to keep them meaningful after
-   backtracking *)
-let deep_copy () =
-  let table = TypeHash.create 7 in
-  let rec copy ty : type_expr =
-    try TypeHash.find table ty
-    with Not_found ->
-      let ty' =
-        let {Types. level; id; desc; scope = _ } as ty = Transient_expr.repr ty in
-        create_expr ~level ~id ~scope:(Transient_expr.get_scope ty) desc
-      in
-      TypeHash.add table ty ty';
-      let desc =
-        match get_desc ty with
-        | Tvar _ | Tnil | Tunivar _ | Tof_kind _ as desc -> desc
-        | Tvariant _ as desc -> (* fixme *) desc
-        | Tarrow (l,t1,t2,c) -> Tarrow (l, copy t1, copy t2, c)
-        | Ttuple tl -> Ttuple (List.map (fun (l, t) -> l, copy t) tl)
-        | Tunboxed_tuple tl -> Tunboxed_tuple (List.map (fun (l, t) -> l, copy t) tl)
-        | Tconstr (p, tl, _) -> Tconstr (p, List.map copy tl, ref Mnil)
-        | Tobject (t1, r) ->
-          let r = match !r with
-            | None -> None
-            | Some (p,tl) -> Some (p, List.map copy tl)
-          in
-          Tobject (copy t1, ref r)
-        | Tfield (s,fk,t1,t2) -> Tfield (s, fk, copy t1, copy t2)
-        | Tpoly (t,tl) -> Tpoly (copy t, List.map copy tl)
-        | Trepr (t,tl) -> Trepr (copy t, tl)
-        | Tpackage { pack_path; pack_cstrs } ->
-          Tpackage
-            { pack_path; pack_cstrs = List.map (fun (l, tl) -> l, copy tl) pack_cstrs }
-        | Tquote t -> Tquote (copy t)
-        | Tquote_eval t -> Tquote_eval (copy t)
-        | Tsplice t -> Tsplice (copy t)
-        | Tbox t -> Tbox (copy t)
-        | Tmod (t, mod_bounds) -> Tmod (copy t, mod_bounds)
-        | Tlink _ | Tsubst _ -> assert false
-      in
-      Transient_expr.(set_desc (repr ty') desc);
-      ty'
-  in
-  copy
-
-let trace_copy_raw ?(copy=deep_copy ())
-  (trace : Errortrace.unification Errortrace.error) =
-  Errortrace.map_types copy trace
-
-let trace_copy ?copy
-  ({ trace } : Errortrace.unification_error) =
-  Errortrace.unification_error ~trace:(trace_copy_raw ?copy trace)
-
-let trace_subtype_copy ?(copy=deep_copy ())
-  (error_trace : Errortrace.Subtype.error_trace) =
-  Errortrace.Subtype.map_types copy error_trace
-
-let copy_expanded_type copy ({ ty; expanded } : Errortrace.expanded_type) =
-  Errortrace.{ ty = copy ty; expanded = copy expanded }
-
-let error (loc, env, err) =
-  let err = match err with
-    | Label_mismatch (record_form, li, unification_error) ->
-      Label_mismatch (record_form, li, trace_copy unification_error)
-    | Pattern_type_clash (trace, popt) ->
-      Pattern_type_clash (trace_copy trace, popt)
-    | Or_pattern_type_clash (i, trace) ->
-      Or_pattern_type_clash (i, trace_copy trace)
-    | Expr_type_clash (trace, ctx_opt, eopt) ->
-      Expr_type_clash (trace_copy trace, ctx_opt, eopt)
-    | Apply_non_function t ->
-      Apply_non_function { t with
-        func_ty = deep_copy () t.func_ty;
-        res_ty = deep_copy () t.res_ty }
-    | Apply_wrong_label (l, t, b) ->
-      Apply_wrong_label (l, deep_copy () t, b)
-    | Wrong_name (s1, t, wn) ->
-      Wrong_name (s1, { t with ty = deep_copy () t.ty }, wn)
-    | Undefined_method (t, s, l) ->
-      Undefined_method (deep_copy () t, s, l)
-    | Private_type t ->
-      Private_type (deep_copy () t)
-    | Private_label (li, t) ->
-      Private_label (li, deep_copy () t)
-    | Not_subtype { trace; unification_trace} ->
-      let copy = deep_copy () in
-      let trace = trace_subtype_copy ~copy trace in
-      let unification_trace = trace_copy_raw ~copy unification_trace in
-      Not_subtype (Errortrace.Subtype.error ~trace ~unification_trace)
-    | Coercion_failure (exptype, ts, b) ->
-      let copy = deep_copy () in
-      Coercion_failure (copy_expanded_type copy exptype, trace_copy ~copy ts, b)
-    | Too_many_arguments (t, ctx_opt) ->
-      Too_many_arguments (deep_copy () t, ctx_opt)
-    | Abstract_wrong_label ({ expected_type; _} as awl) ->
-      Abstract_wrong_label
-        { awl with expected_type = deep_copy () expected_type }
-    | Scoping_let_module (s, t) ->
-      Scoping_let_module (s, deep_copy () t)
-    | Less_general (s, tr) ->
-      Less_general (s, trace_copy tr)
-    | Not_a_packed_module t ->
-      Not_a_packed_module (deep_copy () t)
-    | err -> err
-  in
-  Error (loc, env, err)
-
 (* Forward declaration, to be filled in by Typemod.type_module *)
 
 let type_module =
@@ -2988,7 +2882,7 @@ let type_for_loop_like_index ~error:err ~loc ~env ~param ~any ~var =
           ~pv_as_var:false
           ~pv_attributes:[]
   | _ ->
-      Error.log_and_raise param.ppat_loc env error
+      Error.log_and_raise param.ppat_loc env err
 
 let type_for_loop_index ~loc ~env ~param =
   type_for_loop_like_index
@@ -3939,7 +3833,7 @@ and type_pat_aux
         | Record_type_of_other_form ->
           let err =
             Wrong_expected_record_boxing(Pattern, P record_form, expected_ty) in
-          Error.log_and_raise loc !!penv error
+          Error.log_and_raise loc !!penv err
         | Maybe_a_record_type ->
           None,
           newvar (Jkind.of_new_sort ~level:(Ctype.get_current_level ())
@@ -5143,6 +5037,10 @@ let check_unused
 
 (** Some delayed checks, to be executed after typing the whole
     compilation unit or toplevel phrase *)
+(* [merlin] named so that [Mtyper] can snapshot and restore the pending
+   checks when it incrementally re-types a buffer *)
+type delayed_check = ((unit -> unit) * Warnings.state)
+
 let delayed_checks = ref []
 let reset_delayed_checks () = delayed_checks := []
 let add_delayed_check f =
@@ -7234,35 +7132,6 @@ let pat_modes ~force_toplevel rec_mode_var ~is_lpoly (attrs, spat) =
     else None, exp_mode
   in
   attrs, pat_mode, env_locality_mode, exp_mode, spat
-
-let create_merlin_type_error_node loc env ty_expected ~attributes =
-    { exp_desc =
-        Texp_ident
-          { path = Path.Pident (Ident.create_local "*type-error*");
-            lid = Location.mkloc (Longident.Lident "*type-error*") loc;
-            desc =
-              { Types.val_type = ty_expected;
-                val_kind =
-                  Val_reg (Var (Jkind.Sort.new_var ~level:(Ctype.get_current_level ())));
-                val_lpoly = Lpoly.determined [];
-                val_loc = loc;
-                val_attributes = [];
-                val_uid = Uid.internal_not_actually_unique;
-                val_zero_alloc = Zero_alloc.default;
-                val_modalities = Modality.of_const Modality.Const.id
-              };
-            kind = Id_value;
-            unique_use = (Uniqueness.newvar (get_current_level ()),
-                          Linearity.newvar (get_current_level ()));
-            mode = Mode.With_regionality.newvar (get_current_level ());
-            staticity = Staticity.newvar (get_current_level ())
-          };
-      exp_loc = loc;
-      exp_extra = [];
-      exp_type = ty_expected;
-      exp_env = env;
-      exp_attributes = attributes;
-    }
 
 let add_zero_alloc_attribute expr attributes =
   let open Builtin_attributes in
@@ -9491,7 +9360,7 @@ and type_expect_
         (* add_delayed_check
           (fun () ->
              if not (Env.has_probe name) then
-               Error.log_and_raise name_loc env (Probe_name_undefined name));
+               Error.log_and_raise name_loc env (Probe_name_undefined name)); *)
         rue {
           exp_desc = Texp_probe_is_enabled {name};
           exp_loc = loc; exp_extra = [];
@@ -10207,44 +10076,9 @@ and type_function
   let loc =
     loc_rest_of_function ~first ~loc_function:loc_fun params_suffix body
   in
-  Msupport.with_saved_types (fun () ->
-    let saved = save_levels () in
-    try
-      type_function_
-        env expected_mode ty_expected
-        params_suffix body_constraint body ~first ~loc ~in_function
-    with exn ->
-      Msupport.erroneous_type_register ty_expected;
-      raise_error exn;
-      set_levels saved;
-      let fun_ty =
-        newvar (Jkind.of_new_sort ~why:Merlin ~level:(Ctype.get_current_level ()))
-      in
-      let fun_body =
-        Tfunction_body
-          (create_merlin_type_error_node loc env ty_expected
-             ~attributes:(Msupport.recovery_attributes []))
-      in
-      let ret_info =
-        { ret_mode =
-            { mode_modes =
-                Typedtree.create_return_mode
-                  (Locality.newvar 0);
-              mode_desc = [] };
-          ret_sort = Var (Jkind.Sort.new_var ~level:(Ctype.get_current_level ()));
-          cases_arg_yielding = None;
-        }
-      in
-      { function_ = fun_ty, [], fun_body;
-        newtypes = [];
-        params_contain_gadt = No_gadt;
-        fun_alloc_mode =
-          Some { locality_mode = Locality.newvar 0;
-                 fun_closure_mode =
-                   With_locality.Comonadic.newvar (get_current_level ()) };
-        ret_info = Some ret_info;
-        calling_convention_sorts = []
-      })
+  type_function_
+    env expected_mode ty_expected
+    params_suffix body_constraint body ~first ~loc ~in_function
 
 (* Typecheck parameters one at a time followed by the body. Later parameters
    are checked in the scope of earlier ones. That's necessary to support
@@ -10264,10 +10098,8 @@ and type_function_
       params_suffix body_constraint body ~loc ~first ~in_function
   : type_function_result
   =
-  (* Merlin: [loc] is computed in [type_function] and passed through to
-     here. (We use it in the error recovery in [type_function].)
-  *)
-  let ty_fun, _ = in_function in
+  (* Merlin: [loc] is computed in [type_function] and passed through to here. *)
+  let ty_fun, (loc_fun : Location.t) = in_function in
   match params_suffix with
   | { pparam_desc = Pparam_newtype (newtype_var, jkind_annot) } :: rest ->
       (* Check everything else in the scope of (type a). *)
