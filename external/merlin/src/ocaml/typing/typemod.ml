@@ -3539,7 +3539,15 @@ and type_module_aux ~alias ~hold_locks ~strengthen ~funct_body anchor env
   | Pmod_extension ext ->
       raise (Error_forward (Builtin_attributes.error_of_extension ext))
   | Pmod_hole ->
-      Typecore.Error.log_and_raise smod.pmod_loc env Typecore.Unexpected_hole
+      (* [merlin] Unlike the compiler, Merlin keeps module holes in the typed
+         tree: [Construct] and [type-enclosing] work on them. *)
+      { mod_desc = Tmod_typed_hole;
+        mod_type = Mty_for_hole;
+        mod_mode = With_regionality.(disallow_right min), None;
+        mod_env = env;
+        mod_attributes = smod.pmod_attributes;
+        mod_loc = smod.pmod_loc },
+      Shape.dummy_mod
   | Pmod_instance glob ->
       Language_extension.assert_enabled ~loc:smod.pmod_loc Instances ();
       let glob = instance_name ~loc:smod.pmod_loc env glob in

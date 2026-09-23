@@ -21,7 +21,7 @@
                   pattern (test.ml[2,79+6]..test.ml[2,79+13])
                     Tpat_var \"problem\"
                     sort value
-                    value_mode id(modevar#4<0>[global,many,portable,forkable,unyielding,stateless .. global,once,nonportable,unforkable,yielding,stateful]);meet(unique,uncontended,read_write,static,id(modevar#5<0>[aliased,contended,immutable,dynamic .. unique,uncontended,read_write,static]))
+                    value_mode id(modevar#4<0>[global,many,portable,forkable,unyielding,stateless .. global,many,nonportable,unforkable,yielding,stateful]);meet(unique,uncontended,read_write,static,id(modevar#5<0>[aliased,contended,immutable,dynamic .. unique,uncontended,read_write,static]))
                   expression (test.ml[2,79+16]..test.ml[2,79+24])
                     Texp_variant \"Problem\"
                     None
@@ -40,9 +40,9 @@
                     None
                   expression (test.ml[3,104+11]..test.ml[3,104+28])
                     Texp_function
-                    alloc_mode id(modevar#1a<0>[global .. local])
+                    alloc_mode id(modevar#d<0>[global .. local])
                     yielding_mode unyielding
-                    return_mode id(modevar#18<0>[global .. local])
+                    return_mode proj_Locality(modevar#e<0>[global,many,portable,forkable,unyielding,stateless .. local,once,nonportable,unforkable,yielding,stateful])
                     []
                     [
                       Nolabel
@@ -55,7 +55,7 @@
                           Tpat_construct \"()\"
                           []
                           None
-                        id(modevar#f[global,many,portable,forkable,unyielding,stateless .. local,once,nonportable,unforkable,yielding,stateful]);id(modevar#10[aliased,contended,immutable,dynamic .. unique,uncontended,read_write,static])
+                        proj_Locality(modevar#10<0>[global,many,portable,forkable,unyielding,stateless .. local,once,nonportable,unforkable,unyielding,stateful])
                         []
                     ]
                     Tfunction_body

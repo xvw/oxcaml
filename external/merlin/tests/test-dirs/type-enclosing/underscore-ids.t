@@ -437,7 +437,7 @@ We try several places in the identifier to check the result stability
             Texp_function
             alloc_mode global
             yielding_mode unyielding
-            return_mode id(modevar#20<0>[global .. local])
+            return_mode proj_Locality(modevar#16<0>[global,many,portable,forkable,unyielding,stateless .. local,once,nonportable,unforkable,yielding,stateful])
             []
             [
               Nolabel
@@ -450,7 +450,7 @@ We try several places in the identifier to check the result stability
                 []
             ]
             Tfunction_cases (under.ml[2,13+18]..under.ml[5,70+17])
-              alloc_mode id(modevar#15[global,many,portable,forkable,unyielding,stateless .. local,once,nonportable,unforkable,yielding,stateful]);id(modevar#16[aliased,contended,immutable,dynamic .. unique,uncontended,read_write,static])
+              locality_mode proj_Locality(modevar#18<0>[global,many,portable,forkable,unyielding,stateless .. local,once,nonportable,unforkable,unyielding,stateful])
               value
               extra (under.ml[2,13+18]..under.ml[5,70+17])
                 Texp_constraint
